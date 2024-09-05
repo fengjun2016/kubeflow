@@ -23,6 +23,7 @@ import (
 	"io/ioutil"
 	"os"
 	"reflect"
+	"sync"
 	"time"
 
 	"github.com/cenkalti/backoff"
@@ -91,6 +92,8 @@ type ProfileReconciler struct {
 	UserIdPrefix               string
 	WorkloadIdentity           string
 	DefaultNamespaceLabelsPath string
+	stopCh                     chan struct{}
+	wg                         sync.WaitGroup
 }
 
 // +kubebuilder:rbac:groups=core,resources=namespaces,verbs="*"
@@ -375,11 +378,20 @@ func (r *ProfileReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := watcher.Add(r.DefaultNamespaceLabelsPath); err != nil {
 		return errors.Wrapf(err, "Failed to watch file %s", r.DefaultNamespaceLabelsPath)
 	}
+
+	r.stopCh = make(chan struct{})
 	events := make(chan event.GenericEvent)
+	r.wg.Add(1)
 	go func(watcher *fsnotify.Watcher, reconcileEvents chan event.GenericEvent) {
-		defer watcher.Close()
+		defer func() {
+			watcher.Close()
+			r.wg.Done()
+		}()
+
 		for {
 			select {
+			case <-r.stopCh:
+				return
 			case fsEvent := <-watcher.Events:
 				if fsEvent.Op != fsnotify.Remove && fsEvent.Op != fsnotify.Write {
 					break
@@ -414,6 +426,11 @@ func (r *ProfileReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 	return nil
+}
+
+func (r *ProfileReconciler) TeardownManager() {
+	close(r.stopCh)
+	r.wg.Wait()
 }
 
 func (r *ProfileReconciler) getAuthorizationPolicy(profileIns *profilev1.Profile) istioSecurity.AuthorizationPolicy {

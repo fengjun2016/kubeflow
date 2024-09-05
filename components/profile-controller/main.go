@@ -96,7 +96,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controllers.ProfileReconciler{
+	profileReconciler := &controllers.ProfileReconciler{
 		Client:                     mgr.GetClient(),
 		Scheme:                     mgr.GetScheme(),
 		Log:                        ctrl.Log.WithName("controllers").WithName("Profile"),
@@ -104,7 +104,11 @@ func main() {
 		UserIdPrefix:               userIdPrefix,
 		WorkloadIdentity:           workloadIdentity,
 		DefaultNamespaceLabelsPath: defaultNamespaceLabelsPath,
-	}).SetupWithManager(mgr); err != nil {
+	}
+	err = profileReconciler.SetupWithManager(mgr)
+	defer profileReconciler.TeardownManager()
+
+	if err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Profile")
 		os.Exit(1)
 	}
